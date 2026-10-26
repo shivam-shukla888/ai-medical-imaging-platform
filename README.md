@@ -1,28 +1,37 @@
-# AI Chest X-Ray Research Platform
+# AI Medical Imaging Platform
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange.svg)](https://pytorch.org/)
+[![MONAI](https://img.shields.io/badge/MONAI-1.6+-lightgrey.svg)](https://monai.io/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](https://react.dev/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.25+-red.svg)](https://streamlit.io/)
+[![DVC](https://img.shields.io/badge/DVC-3.6+-purple.svg)](https://dvc.org/)
+[![Orthanc](https://img.shields.io/badge/Orthanc-PACS-blue.svg)](https://www.orthanc-server.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
+[![Tests](https://img.shields.io/badge/Tests-29%20Passed-brightgreen.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > ### ⚠️ Mandatory Educational & Research Disclaimer
 > **Educational research demo only. Not intended for clinical use, patient diagnosis, treatment planning, triage, or medical decision-making.**
-> This platform demonstrates machine learning explainability and reproducible biomedical engineering workflows. Benchmark performance on preprocessed $28 \times 28$ radiographs does **not** reflect clinical safety or reliability on real-world patients.
+> This platform demonstrates biomedical machine learning engineering, interpretability, and PACS integration. Benchmark performance on preprocessed $28 \times 28$ radiographs does **not** reflect clinical safety or reliability on real-world patients.
 
 ---
 
 ## 1. Project Overview
 
-The **AI Chest X-Ray Research Platform** is an end-to-end, decoupled machine learning system and interactive research dashboard built on the **MedMNIST v2 PneumoniaMNIST** benchmark.
+The **AI Medical Imaging Platform** is an enterprise-grade, end-to-end medical deep learning system and research dashboard. Built around the peer-reviewed **MedMNIST v2 PneumoniaMNIST** benchmark, it combines:
 
-It allows researchers, students, and engineers to:
-1. Classify chest radiographs as **Normal** or **Pneumonia**.
-2. Inspect uncalibrated **model scores** without confusing them with clinical probabilities.
-3. Compute and visualize true **Grad-CAM (Gradient-weighted Class Activation Mapping)** heatmaps and anatomical overlays.
-4. Review formal diagnostic metrics (**Accuracy**, **Sensitivity**, **Specificity**, **Precision**, **F1-Score**, and **ROC-AUC**) measured against the official untouched test split.
-5. Deploy locally via Python or package as a multi-container stack with **Docker Compose**.
+1. **Diagnostic Classification**: Pediatric chest radiograph classification (**Normal** vs. **Pneumonia**) using a lightweight custom CNN (`ChestXRayMiniCNN`).
+2. **Explainable AI (Grad-CAM)**: True mathematical gradient-weighted class activation mapping targeting layer `conv3` with normalized heatmaps and anatomical overlays.
+3. **Medical Imaging Transforms (MONAI)**: MONAI deterministic preprocessing pipelines and an educational 3D volumetric segmentation demo using MONAI 3D U-Net.
+4. **PACS & DICOM Ingestion**: Orthanc DICOM server integration with automated Protected Health Information (PHI) sanitization.
+5. **DVC Pipeline Reproducibility**: Full Data Version Control (`dvc.yaml`) pipeline linking data, configuration, training, and evaluation.
+6. **Dual Frontend Options**:
+   - **Modern React Dashboard** (Vite + React 18): High-performance, responsive UI with interactive Grad-CAM visualizer.
+   - **Streamlit Research Dashboard**: Python-native rapid exploration UI with zero frontend dependencies.
+7. **Security & Auditability**: Append-only audit logging (`artifacts/audit_events.jsonl`) recording research interactions without capturing patient identifiers.
+8. **Automated Quality Gates**: 29 unit and integration tests covering ML, API, MONAI, DICOM, DVC, and frontend production builds.
 
 ---
 
@@ -30,162 +39,85 @@ It allows researchers, students, and engineers to:
 
 ```mermaid
 flowchart TD
-    subgraph Data ["Data Layer"]
-        NPZ["pneumoniamnist.npz\n(MedMNIST v2 Archive)"]
-        VERIFY["scripts/verify_dataset.py\n(MD5 Checksum & Validation)"]
+    subgraph DataLayer ["Data & Reproducibility Layer"]
+        RAW["pneumoniamnist.npz\n(MedMNIST v2 Official Archive)"]
+        DVC["DVC Pipeline (dvc.yaml)\n(verify -> train -> evaluate)"]
         LOADER["PneumoniaDataset & DataLoaders\n(Train: 4708 | Val: 524 | Test: 624)"]
-        NPZ --> VERIFY
-        NPZ --> LOADER
+        MONAI_T["MONAI Preprocessing Engine\n(ScaleIntensity, Resize, EnsureChannelFirst)"]
+
+        RAW --> DVC
+        DVC --> LOADER
+        LOADER --> MONAI_T
     end
 
-    subgraph CoreML ["Machine Learning & XAI Engine"]
-        CNN["ChestXRayMiniCNN\n(3 Conv Blocks, BatchNorm, Dropout)"]
-        TRAIN["scripts/run_training.py\n(Weighted CrossEntropy, AdamW)"]
-        CKPT[("artifacts/best_model.pt\n(Checkpoint & Metadata)")]
-        EVAL["scripts/run_evaluation.py\n(Official Test Evaluation)"]
-        GCAM["GradCAM Engine\n(Target: conv3, GAP, Heatmap Overlay)"]
+    subgraph MLLayer ["Machine Learning & XAI Core"]
+        CNN["ChestXRayMiniCNN\n(3 Conv Stages, BatchNorm, Dropout)"]
+        CKPT[("artifacts/best_model.pt\n(PyTorch Checkpoint, Epoch 4)")]
+        GRADCAM["GradCAM Explainability Engine\n(Target: conv3, GAP, Heatmap Overlay)"]
+        MONAI_3D["MONAI 3D Volumetric U-Net\n(SpatialDims=3, Synthetic Phantom)"]
 
-        LOADER --> TRAIN
-        TRAIN --> CNN
-        TRAIN --> CKPT
-        CKPT --> EVAL
-        CKPT --> CNN
-        CNN --> GCAM
+        MONAI_T --> CNN
+        CNN --> CKPT
+        CKPT --> GRADCAM
     end
 
-    subgraph Backend ["FastAPI REST Service (:8000)"]
-        APP["app/api/main.py"]
+    subgraph PACSLayer ["DICOM & PACS Ingestion"]
+        ORTHANC["Orthanc PACS Server\n(DICOM Port: 4242, HTTP: 8042)"]
+        DICOM_INGEST["DICOM Ingestion Service\n(pydicom, PHI Redaction, Pixel Extraction)"]
+        ORTHANC_CLIENT["OrthancClient REST Bridge"]
+
+        ORTHANC <--> ORTHANC_CLIENT
+        DICOM_INGEST --> ORTHANC_CLIENT
+    end
+
+    subgraph BackendLayer ["FastAPI Service Layer (:8000)"]
+        API["FastAPI Application (app/api/main.py)"]
         SVC["PlatformService & InferenceEngine"]
-        EP1["GET /health & /ready"]
-        EP2["GET /model-info & /samples"]
-        EP3["POST /predict & /explain"]
+        AUDIT["AuditLogger (artifacts/audit_events.jsonl)"]
 
-        APP --> SVC
+        API --> SVC
+        API --> AUDIT
         SVC --> CNN
-        SVC --> GCAM
-        APP --> EP1
-        APP --> EP2
-        APP --> EP3
+        SVC --> GRADCAM
+        SVC --> DICOM_INGEST
+        SVC --> MONAI_3D
     end
 
-    subgraph Frontend ["Streamlit Dashboard (:8501)"]
-        DASH["app/streamlit_app.py"]
-        TAB1["🔬 Diagnostic Inference & Grad-CAM"]
-        TAB2["📊 Benchmark Evaluation & Metrics"]
-        TAB3["🗂️ Dataset & Splits Explorer"]
+    subgraph FrontendLayer ["User Interface Tier"]
+        REACT["React Research Dashboard (:3000 / :5173)\n(Vite + React 18)"]
+        STREAMLIT["Streamlit Fallback Dashboard (:8501)\n(Rapid Exploration UI)"]
 
-        DASH --> TAB1
-        DASH --> TAB2
-        DASH --> TAB3
+        REACT -.->|REST API /predict, /samples| API
+        STREAMLIT -.->|REST API /predict, /samples| API
     end
-
-    TAB1 -.->|REST API /predict| APP
-    TAB1 -.->|REST API /samples| APP
 ```
 
 ---
 
-## 3. Technology Stack & Design Decisions
+## 3. Measured Evaluation Results
 
-| Layer | Technology | Decision Rationale |
-| :--- | :--- | :--- |
-| **Dataset** | MedMNIST v2 PneumoniaMNIST | Standardized, peer-reviewed $28 \times 28$ benchmark enabling fast iteration on standard laptops without multi-gigabyte PACS downloads. |
-| **Deep Learning** | PyTorch 2.x | Native tensor execution, autograd hooks for Grad-CAM, and clean Pythonic architecture. |
-| **Model** | `ChestXRayMiniCNN` | Custom 3-stage CNN (~240K parameters). Trains in ~25 seconds on CPU while achieving > 89% accuracy and 98% sensitivity. |
-| **Explainability** | Grad-CAM (`conv3`) | Mathematical gradient-weighted activation mapping. Directly visualizes neural feature excitation without surrogate approximations. |
-| **Backend API** | FastAPI + Uvicorn | Asynchronous REST service with automatic Pydantic request validation and OpenAPI documentation (`/docs`). |
-| **Frontend** | Streamlit | Clean, interactive research UI communicating strictly via REST API with the backend. |
-| **Containerization** | Docker & Compose | Multi-container architecture with non-root user execution, health checks, and service networking. |
+Evaluated directly against the **untouched official test split (624 images)**:
 
----
-
-## 4. Repository Structure
-
-```
-ai-medical-imaging-platform/
-├── app/
-│   ├── streamlit_app.py        # Streamlit research dashboard
-│   ├── api/
-│   │   ├── main.py             # FastAPI routes & endpoints
-│   │   ├── schemas.py          # Pydantic request/response schemas
-│   │   └── services.py         # Business logic & singleton services
-│   └── ml/
-│       ├── dataset.py          # Dataset loader & verification
-│       ├── model.py            # ChestXRayMiniCNN architecture
-│       ├── train.py            # Training pipeline with checkpointing
-│       ├── evaluate.py         # Test split evaluation & reports
-│       ├── predict.py          # Shared inference & Grad-CAM pipeline
-│       ├── gradcam.py          # Grad-CAM mathematical implementation
-│       ├── metrics.py          # Diagnostic metrics calculations
-│       └── utils.py            # Device detection, config, and seeds
-├── configs/
-│   └── config.yaml             # Centralized pipeline configuration
-├── data/
-│   ├── README.md               # Dataset documentation & provenance
-│   └── pneumoniamnist.npz      # Local MedMNIST v2 archive
-├── artifacts/
-│   ├── best_model.pt           # Saved PyTorch checkpoint & metadata
-│   └── training_history.json   # Epoch-by-epoch loss & accuracy logs
-├── reports/
-│   ├── metrics.json            # Machine-readable test split metrics
-│   ├── evaluation_report.md    # Markdown evaluation report
-│   ├── confusion_matrix.png    # Test split confusion matrix plot
-│   ├── roc_curve.png           # Test split ROC curve plot
-│   └── loss_curve.png          # Training/validation learning curves
-├── tests/
-│   ├── test_dataset.py         # Integrity, splits, and loader tests
-│   ├── test_model.py           # Forward pass, shapes, and metrics tests
-│   ├── test_gradcam.py         # Grad-CAM heatmap & hook cleanup tests
-│   └── test_api.py             # FastAPI endpoint integration tests
-├── docs/
-│   ├── architecture.md         # System architecture & Mermaid diagrams
-│   ├── model_card.md           # Model card & clinical scope
-│   ├── data_card.md            # Data card & provenance details
-│   ├── testing.md              # Testing guide & pytest commands
-│   ├── deployment.md           # Local, Docker, and Cloud guide
-│   └── limitations.md          # Technical & anatomical limitations
-├── scripts/
-│   ├── verify_dataset.py       # Dataset audit & checksum script
-│   ├── run_training.py         # Model training script
-│   └── run_evaluation.py       # Model evaluation script
-├── Dockerfile                  # Production container definition
-├── compose.yaml                # Multi-service Docker Compose stack
-├── requirements.txt            # Pinned runtime dependencies
-├── requirements-dev.txt        # Development & test dependencies
-├── .dockerignore               # Docker build exclusions
-├── .gitignore                  # Git repository exclusions
-├── .env.example                # Environment variable template
-├── Makefile                    # Target shortcuts
-├── LICENSE                     # MIT License + Dataset attribution
-└── README.md                   # Project documentation
-```
-
----
-
-## 5. Measured Evaluation Results
-
-Evaluated on the **untouched official test split (624 images)**:
-
-| Metric | Measured Score | Clinical / Technical Meaning |
+| Diagnostic Metric | Measured Score | Clinical & Technical Meaning |
 | :--- | :---: | :--- |
 | **Accuracy** | **89.74%** | Total fraction of correct test classifications |
-| **Sensitivity (Recall)** | **98.21%** | Successfully identified 383 of 390 pneumonia cases |
-| **Specificity** | **75.64%** | Successfully identified 177 of 234 normal cases |
-| **Precision** | **87.05%** | Positive predictive value for pneumonia |
-| **F1-Score** | **0.9229** | Harmonic mean of precision and sensitivity |
+| **Sensitivity (Recall)** | **98.21%** | True Positive Rate (383 out of 390 pneumonia cases identified) |
+| **Specificity** | **75.64%** | True Negative Rate (177 out of 234 normal cases identified) |
+| **Precision** | **87.05%** | Positive Predictive Value for Pneumonia |
+| **F1 Score** | **0.9229** | Harmonic mean of precision and sensitivity |
 | **ROC-AUC** | **0.9418** | Area Under Receiver Operating Characteristic Curve |
 
 *Confusion Matrix (Test Split)*:
-- **True Negatives (TN)**: 177
-- **False Positives (FP)**: 57
-- **False Negatives (FN)**: 7
-- **True Positives (TP)**: 383
+- **True Negatives (Normal $\rightarrow$ Normal)**: 177
+- **False Positives (Normal $\rightarrow$ Pneumonia)**: 57
+- **False Negatives (Pneumonia $\rightarrow$ Normal)**: 7
+- **True Positives (Pneumonia $\rightarrow$ Pneumonia)**: 383
 
 ---
 
-## 6. Quickstart Guide (Windows PowerShell)
+## 4. Quickstart Guide (Windows PowerShell)
 
-### 1. Setup Virtual Environment
+### Step 1: Environment Setup
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
@@ -193,52 +125,71 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### 2. Verify Dataset
+### Step 2: Verify the Dataset
 ```powershell
 python scripts/verify_dataset.py
 ```
 
-### 3. Run Training (Optional: best_model.pt is already trained)
+### Step 3: Run Training & Evaluation (Optional: `best_model.pt` is already trained)
 ```powershell
 python scripts/run_training.py --epochs 8
-```
-
-### 4. Run Test Split Evaluation
-```powershell
 python scripts/run_evaluation.py
 ```
 
-### 5. Launch FastAPI Backend
+### Step 4: Run DVC Reproducibility Pipeline
+```powershell
+# View pipeline DAG
+python -m dvc dag
+
+# Reproduce all pipeline stages
+python -m dvc repro
+```
+
+### Step 5: Start FastAPI Backend
 ```powershell
 python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 ```
-- API Docs: `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/health`
+- Interactive Swagger API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Health check: [http://localhost:8000/health](http://localhost:8000/health)
 
-### 6. Launch Streamlit Dashboard (In a second terminal)
+### Step 6: Launch Frontends
+**Option A: Modern React Frontend (Recommended)**
 ```powershell
-.\venv\Scripts\Activate.ps1
+cd frontend
+npm install
+npm run dev
+```
+Open [http://localhost:5173](http://localhost:5173).
+
+**Option B: Streamlit Dashboard (Python Fallback)**
+```powershell
 streamlit run app/streamlit_app.py --server.port 8501
 ```
-- Dashboard: `http://localhost:8501`
+Open [http://localhost:8501](http://localhost:8501).
 
-### 7. Run Test Suite
+### Step 7: Run Automated Tests
 ```powershell
 python -m pytest -v
 ```
 
 ---
 
-## 7. Docker & Docker Compose
+## 5. Docker & Docker Compose Deployment
 
-Deploy the complete multi-container stack with a single command:
+The multi-container stack orchestrates FastAPI, React, Streamlit, and Orthanc:
 
 ```bash
+# Build and launch Core ML + React + Streamlit stack
 docker compose up -d --build
+
+# Optional: Launch with Orthanc PACS Server
+docker compose --profile pacs up -d
 ```
 
-- **Backend API**: `http://localhost:8000/docs`
-- **Streamlit UI**: `http://localhost:8501`
+- **React Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **FastAPI API & Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Streamlit UI**: [http://localhost:8501](http://localhost:8501)
+- **Orthanc PACS Web Interface**: [http://localhost:8042](http://localhost:8042)
 
 To view logs and stop containers:
 ```bash
@@ -248,61 +199,33 @@ docker compose down
 
 ---
 
-## 8. API Reference & Sample Requests
+## 6. Key API Endpoints
 
-### `GET /health`
-```bash
-curl -X GET http://localhost:8000/health
-```
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-10-26T15:46:42Z",
-  "uptime_seconds": 234.12
-}
-```
-
-### `GET /model-info`
-```bash
-curl -X GET http://localhost:8000/model-info
-```
-
-### `POST /predict/sample/{sample_idx}`
-```bash
-curl -X POST "http://localhost:8000/predict/sample/0?explain=true"
-```
-```json
-{
-  "prediction": {
-    "class_id": 1,
-    "class_name": "Pneumonia",
-    "model_scores": {
-      "Normal": 0.0412,
-      "Pneumonia": 0.9588
-    },
-    "score_note": "Model scores are raw algorithmic outputs and do NOT represent clinically calibrated probabilities."
-  },
-  "explanation": {
-    "target_class": "Pneumonia",
-    "heatmap_min": 0.0,
-    "heatmap_max": 1.0,
-    "heatmap_base64": "data:image/png;base64,...",
-    "overlay_base64": "data:image/png;base64,..."
-  },
-  "inference_time_ms": 14.8,
-  "disclaimer": "Educational research demo only. Not intended for clinical use, diagnosis, treatment, or medical decision-making."
-}
-```
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | Process liveness and uptime check |
+| `GET` | `/ready` | Model readiness and hardware device verification |
+| `GET` | `/model-info` | Active CNN architecture and metadata |
+| `GET` | `/samples` | Available benchmark test samples with thumbnails |
+| `POST` | `/predict` | Classifies uploaded radiograph and generates Grad-CAM |
+| `POST` | `/predict/sample/{idx}` | Classifies benchmark test image by index |
+| `POST` | `/ingest/dicom` | Parses DICOM Part 10 file, redacts PHI, runs inference |
+| `GET` | `/orthanc/status` | Connects to Orthanc PACS and queries study statistics |
+| `GET` | `/monai/demo-3d` | Executes 3D volumetric U-Net segmentation demo |
+| `GET` | `/audit-logs` | Retrieves append-only research interaction event log |
 
 ---
 
-## 9. Interview Talking Points & Engineering Rationale
+## 7. Submission & Technical Documentation
 
-1. **Why MedMNIST v2 instead of full NIH ChestX-ray 14?**
-   - The full NIH ChestX-ray 14 archive is over 45 GB with severe label noise and heterogeneous radiograph projections. MedMNIST v2 PneumoniaMNIST provides a peer-reviewed, reproducible benchmark that trains in under 30 seconds on laptop hardware while preserving realistic class imbalance (~74% pneumonia).
-2. **Why custom MiniCNN rather than heavy pre-trained ResNet-50 / ViT?**
-   - Pre-trained ImageNet architectures expect $224 \times 224 \times 3$ inputs with natural image priors (fur, cars, textures). Upsampling $28 \times 28$ grayscale images by $8 \times$ wastes gigabytes of VRAM on bilinear blur without adding clinical signal. A purpose-built 3-stage CNN (~240K parameters) achieves ~90% accuracy with zero overfitting and minimal carbon footprint.
-3. **Handling Class Imbalance**:
-   - The training split contains 1,214 Normal and 3,494 Pneumonia cases. Unweighted cross-entropy risks a naive majority predictor. We compute dynamic inverse-frequency class weights ($W_0 \approx 1.94, W_1 \approx 0.67$) passed directly to `torch.nn.CrossEntropyLoss(weight=weights)`. This achieved a 98.2% test sensitivity.
-4. **Decoupled Architecture**:
-   - The Streamlit frontend and FastAPI backend communicate strictly over HTTP. The model engine loads once as a singleton in the backend process, avoiding duplicate VRAM allocation and decoupling client rendering from tensor computation.
+All project documentation is organized in `docs/`:
+- **[Requirements Traceability Matrix](docs/requirements_traceability.md)**: Full mapping of all 15 project requirements to implementations and tests.
+- **[System Architecture](docs/architecture.md)**: In-depth technical rationale and 3 Mermaid diagrams.
+- **[Model Card](docs/model_card.md)**: Intended uses, excluded uses, architecture, and metric definitions.
+- **[Data Card](docs/data_card.md)**: Dataset provenance, license, split counts, and preprocessing rules.
+- **[Testing & Verification Guide](docs/testing.md)**: Automated test documentation and smoke-test workflows.
+- **[Deployment Guide](docs/deployment.md)**: Local, Docker Compose, and cloud hosting configurations.
+- **[Technical & Clinical Limitations](docs/limitations.md)**: Radiological downsampling, pediatric cohort scope, and shortcut learning risks.
+- **[Engineering Reflection](docs/reflection.md)**: Comprehensive retrospective on technical challenges, trade-offs, and future work.
+- **[Presentation Outline](presentation/slides.md)**: 10-minute slide walkthrough.
+- **[Final Verification Report](reports/final_verification.md)**: Complete audit results and check statuses.

@@ -24,6 +24,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
 # Virtual Environments
 .env
 .venv
@@ -46,8 +50,9 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Artifacts & Reports (ignore weights, keep structure)
+# Artifacts & Reports (ignore weights & runtime logs, keep structure)
 artifacts/*.pt
 artifacts/*.pth
+artifacts/*.jsonl
 !artifacts/.gitkeep
 !reports/.gitkeep

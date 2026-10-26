@@ -1,4 +1,7 @@
 services:
+  # -------------------------------------------------------
+  # 1. FastAPI Machine Learning & Inference Backend
+  # -------------------------------------------------------
   api:
     build:
       context: .
@@ -10,8 +13,11 @@ services:
       - ENVIRONMENT=production
       - API_HOST=0.0.0.0
       - API_PORT=8000
+      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_USER=orthanc
+      - ORTHANC_PASSWORD=orthanc
     volumes:
-      - ./artifacts:/app/artifacts:ro
+      - ./artifacts:/app/artifacts:rw
       - ./reports:/app/reports:ro
       - ./data:/app/data:ro
     healthcheck:
@@ -22,11 +28,29 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # -------------------------------------------------------
+  # 2. Modern React Research Dashboard (Primary Web UI)
+  # -------------------------------------------------------
   frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chestxray_react
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # -------------------------------------------------------
+  # 3. Streamlit Research Dashboard (Fallback Web UI)
+  # -------------------------------------------------------
+  streamlit:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chestxray_frontend
+    container_name: chestxray_streamlit
     command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
     ports:
       - "8501:8501"
@@ -44,3 +68,26 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+
+  # -------------------------------------------------------
+  # 4. Orthanc DICOM PACS Server (Optional Profile: pacs)
+  # -------------------------------------------------------
+  orthanc:
+    image: orthancteam/orthanc:latest
+    container_name: chestxray_orthanc
+    profiles:
+      - pacs
+    ports:
+      - "8042:8042" # HTTP REST API & Web GUI
+      - "4242:4242" # DICOM Protocol Port
+    environment:
+      - ORTHANC__AUTHENTICATION_ENABLED=true
+      - ORTHANC__REGISTERED_USERS={"orthanc":"orthanc"}
+      - DICOM_MODALITIES_IN_DB=true
+    volumes:
+      - orthanc-db:/var/lib/orthanc/db
+    restart: unless-stopped
+
+volumes:
+  orthanc-db:
+    driver: local

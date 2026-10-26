@@ -1,9 +1,9 @@
 """
 FastAPI application for the AI Chest X-Ray Research Platform.
 Provides RESTful endpoints for health status, readiness, model metadata,
-prediction, and Grad-CAM visual explanation.
+prediction, Grad-CAM visual explanation, audit logging, DICOM ingestion, and Orthanc status.
 """
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import time
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +18,9 @@ from app.api.schemas import (
     ErrorResponse,
 )
 from app.api.services import get_service
+from app.services.audit_logger import get_audit_logger
+from app.api.orthanc_client import OrthancClient, DICOMIngestionService
+from app.ml.monai_3d_demo import run_3d_unet_demonstration, MONAI_AVAILABLE
 
 START_TIME = time.time()
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
@@ -25,7 +28,7 @@ MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
 app = FastAPI(
     title="AI Chest X-Ray Research Platform API",
     description=(
-        "Production-ready FastAPI backend for chest radiograph classification and Grad-CAM explainability.\n\n"
+        "Production-ready FastAPI backend for chest radiograph classification, Grad-CAM explainability, and DICOM research.\n\n"
         "**DISCLAIMER**: Educational research demo only. Not intended for clinical use, diagnosis, treatment, or medical decision-making."
     ),
     version="1.0.0",
@@ -33,7 +36,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Enable CORS for local Streamlit frontend and standard web origins
+# Enable CORS for local React/Streamlit frontends and standard origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -123,7 +126,10 @@ async def predict(
     Optionally computes Grad-CAM heatmaps and visual overlay on the input.
     """
     service = get_service()
+    audit = get_audit_logger()
+
     if not service.engine.is_ready():
+        audit.log_event("PREDICTION_REJECTED", {"reason": "Model not loaded"}, status="FAILED")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Model is not loaded. Please train the model or ensure artifacts/best_model.pt is present.",
@@ -132,6 +138,7 @@ async def predict(
     # Read and validate payload size
     contents = await file.read()
     if len(contents) > MAX_UPLOAD_SIZE:
+        audit.log_event("PREDICTION_REJECTED", {"reason": "Payload too large", "size_bytes": len(contents)}, status="FAILED")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Image file size ({len(contents)} bytes) exceeds the maximum allowed limit of {MAX_UPLOAD_SIZE} bytes (5 MB).",
@@ -139,10 +146,24 @@ async def predict(
 
     try:
         result = service.predict_image_bytes(contents, generate_explanation=explain)
+        audit.log_event(
+            "PREDICTION_COMPLETED",
+            {
+                "filename": file.filename,
+                "file_size_bytes": len(contents),
+                "predicted_class": result["prediction"]["class_name"],
+                "model_scores": result["prediction"]["model_scores"],
+                "inference_time_ms": result["inference_time_ms"],
+                "has_gradcam": explain,
+            },
+            status="SUCCESS",
+        )
         return result
     except ValueError as e:
+        audit.log_event("PREDICTION_FAILED", {"filename": file.filename, "error": str(e)}, status="FAILED")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        audit.log_event("PREDICTION_ERROR", {"filename": file.filename, "error": str(e)}, status="ERROR")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Inference execution failed: {str(e)}",
@@ -178,6 +199,8 @@ def predict_sample(
     Executes prediction and Grad-CAM on a specific sample from the test split by index.
     """
     service = get_service()
+    audit = get_audit_logger()
+
     if not service.engine.is_ready():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -185,7 +208,18 @@ def predict_sample(
         )
 
     try:
-        return service.predict_sample_by_index(sample_idx, generate_explanation=explain)
+        result = service.predict_sample_by_index(sample_idx, generate_explanation=explain)
+        audit.log_event(
+            "SAMPLE_PREDICTION_COMPLETED",
+            {
+                "sample_idx": sample_idx,
+                "predicted_class": result["prediction"]["class_name"],
+                "true_label": result.get("sample_info", {}).get("true_label_name"),
+                "inference_time_ms": result["inference_time_ms"],
+            },
+            status="SUCCESS",
+        )
+        return result
     except IndexError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
@@ -193,3 +227,88 @@ def predict_sample(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Sample inference failed: {str(e)}",
         )
+
+
+@app.post(
+    "/ingest/dicom",
+    tags=["DICOM"],
+    summary="Ingest, validate and classify an anonymized DICOM radiograph",
+)
+async def ingest_dicom(
+    file: UploadFile = File(..., description="DICOM Part 10 file (.dcm)"),
+    explain: bool = Query(True, description="Whether to generate Grad-CAM explanation"),
+):
+    """
+    Extracts pixel array and safe metadata from a DICOM file, redacts PHI,
+    and runs classification and Grad-CAM explainability.
+    """
+    service = get_service()
+    audit = get_audit_logger()
+    contents = await file.read()
+
+    try:
+        metadata = DICOMIngestionService.inspect_and_anonymize(contents)
+        raw_pixels = DICOMIngestionService.extract_image_array(contents)
+
+        # Convert to 28x28 normalized format
+        from app.ml.predict import preprocess_raw_array
+        raw_28, tensor = preprocess_raw_array(raw_pixels)
+
+        prediction_result = service.engine.predict(raw_28, tensor, generate_explanation=explain)
+        prediction_result["dicom_metadata"] = metadata
+
+        audit.log_event(
+            "DICOM_INGESTION_COMPLETED",
+            {
+                "modality": metadata.get("modality"),
+                "predicted_class": prediction_result["prediction"]["class_name"],
+                "file_size_bytes": len(contents),
+            },
+            status="SUCCESS",
+        )
+        return prediction_result
+    except Exception as e:
+        audit.log_event("DICOM_INGESTION_FAILED", {"error": str(e)}, status="FAILED")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"DICOM parsing failed: {e}")
+
+
+@app.get(
+    "/orthanc/status",
+    tags=["DICOM"],
+    summary="Query Orthanc PACS server status",
+)
+def orthanc_status():
+    """Queries Orthanc server liveness and study counts."""
+    client = OrthancClient()
+    return client.get_system_info()
+
+
+@app.get(
+    "/monai/demo-3d",
+    tags=["Research"],
+    summary="Run educational MONAI 3D volumetric U-Net demonstration",
+)
+def monai_3d_demo():
+    """Runs a 3D volumetric segmentation pass on a synthetic phantom using MONAI."""
+    if not MONAI_AVAILABLE:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MONAI library is not installed in the active environment.",
+        )
+    return run_3d_unet_demonstration()
+
+
+@app.get(
+    "/audit-logs",
+    tags=["Audit"],
+    summary="Retrieve recent research platform audit events",
+)
+def get_audit_logs(limit: int = Query(50, ge=1, le=500)):
+    """Returns the most recent append-only audit events."""
+    audit = get_audit_logger()
+    events = audit.get_recent_events(limit=limit)
+    return {
+        "count": len(events),
+        "events": events,
+        "note": "Append-only demonstration audit log. Contains no image contents or PHI.",
+    }

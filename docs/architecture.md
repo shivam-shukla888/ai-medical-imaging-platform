@@ -1,106 +1,137 @@
-# AI Chest X-Ray Research Platform — Architecture
+# AI Medical Imaging Platform — Architecture
 
 ## 1. System Overview
 
-The **AI Chest X-Ray Research Platform** is a decoupled, modular machine learning and web application designed for pedagogical research in deep learning and explainable AI (XAI) applied to chest radiography.
+The **AI Medical Imaging Platform** is an enterprise-grade, modular biomedical research system integrating deep learning, explainability (Grad-CAM), MONAI medical image transforms, Orthanc PACS DICOM workflows, DVC reproducibility, and dual frontends (Modern React + Streamlit fallback).
+
+---
+
+## 2. Mermaid Architecture Diagrams
+
+### Diagram 1: Comprehensive System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Data Layer ["Data & Preprocessing Layer"]
+    subgraph DataLayer ["Data & Reproducibility Layer"]
         RAW["pneumoniamnist.npz\n(MedMNIST v2 Official Archive)"]
-        VERIFY["scripts/verify_dataset.py\n(MD5, Shapes, Distributions)"]
-        DS["PneumoniaDataset & DataLoaders\n(Train: 4708, Val: 524, Test: 624)"]
-        RAW --> VERIFY
-        RAW --> DS
+        DVC["DVC Pipeline (dvc.yaml)\n(verify -> train -> evaluate)"]
+        LOADER["PneumoniaDataset & DataLoaders\n(Train: 4708, Val: 524, Test: 624)"]
+        MONAI_T["MONAI Preprocessing Engine\n(ScaleIntensity, Resize, EnsureChannelFirst)"]
+
+        RAW --> DVC
+        DVC --> LOADER
+        LOADER --> MONAI_T
     end
 
-    subgraph ML Pipeline ["Machine Learning & XAI Engine"]
-        TRAIN["scripts/run_training.py\n(Weighted CrossEntropyLoss, AdamW)"]
-        MODEL["ChestXRayMiniCNN\n(3 Conv Blocks, BatchNorm, Head)"]
-        CKPT[("artifacts/best_model.pt\n(Checkpoint & Metadata)")]
-        EVAL["scripts/run_evaluation.py\n(Test Split Evaluation)"]
-        REPORTS["reports/metrics.json\nreports/evaluation_report.md\nreports/confusion_matrix.png"]
-        GRADCAM["GradCAM Engine\n(Target: conv3, GAP, ReLU, Overlay)"]
+    subgraph MLLayer ["Machine Learning & XAI Core"]
+        CNN["ChestXRayMiniCNN\n(3 Conv Stages, BatchNorm, Dropout)"]
+        CKPT[("artifacts/best_model.pt\n(PyTorch Checkpoint, Epoch 4)")]
+        GRADCAM["GradCAM Explainability Engine\n(Target: conv3, GAP, Heatmap Overlay)"]
+        MONAI_3D["MONAI 3D Volumetric U-Net\n(SpatialDims=3, Synthetic Phantom)"]
 
-        DS --> TRAIN
-        TRAIN --> MODEL
-        TRAIN --> CKPT
-        CKPT --> EVAL
-        EVAL --> REPORTS
-        CKPT --> MODEL
-        MODEL --> GRADCAM
+        MONAI_T --> CNN
+        CNN --> CKPT
+        CKPT --> GRADCAM
     end
 
-    subgraph Backend ["FastAPI Backend (Port 8000)"]
-        API["FastAPI App (app/api/main.py)"]
+    subgraph PACSLayer ["DICOM & PACS Ingestion"]
+        ORTHANC["Orthanc PACS Server\n(DICOM Port: 4242, HTTP: 8042)"]
+        DICOM_INGEST["DICOM Ingestion Service\n(pydicom, PHI Redaction, Pixel Extraction)"]
+        ORTHANC_CLIENT["OrthancClient REST Bridge"]
+
+        ORTHANC <--> ORTHANC_CLIENT
+        DICOM_INGEST --> ORTHANC_CLIENT
+    end
+
+    subgraph BackendLayer ["FastAPI Service Layer (:8000)"]
+        API["FastAPI Application (app/api/main.py)"]
         SVC["PlatformService & InferenceEngine"]
-        EP_HEALTH["GET /health & GET /ready"]
-        EP_INFO["GET /model-info & GET /samples"]
-        EP_PRED["POST /predict & POST /explain"]
-        EP_SMP["POST /predict/sample/{idx}"]
+        AUDIT["AuditLogger (artifacts/audit_events.jsonl)"]
 
         API --> SVC
-        SVC --> MODEL
+        API --> AUDIT
+        SVC --> CNN
         SVC --> GRADCAM
-        API --> EP_HEALTH
-        API --> EP_INFO
-        API --> EP_PRED
-        API --> EP_SMP
+        SVC --> DICOM_INGEST
+        SVC --> MONAI_3D
     end
 
-    subgraph Frontend ["Streamlit Research Dashboard (Port 8501)"]
-        UI["app/streamlit_app.py"]
-        SAMPLE_SEL["Benchmark Test Sample Selector"]
-        UPLOAD["Radiograph File Uploader"]
-        VIS["Inference Scores & Grad-CAM Visualizer"]
-        METRICS_VIEW["Benchmark Evaluation Metrics & Plots"]
+    subgraph FrontendLayer ["User Interface Tier"]
+        REACT["React Research Dashboard (:3000 / :5173)\n(Vite + React 18)"]
+        STREAMLIT["Streamlit Fallback Dashboard (:8501)\n(Rapid Exploration UI)"]
 
-        UI --> SAMPLE_SEL
-        UI --> UPLOAD
-        UI --> VIS
-        UI --> METRICS_VIEW
+        REACT -.->|REST API /predict, /samples| API
+        STREAMLIT -.->|REST API /predict, /samples| API
     end
-
-    SAMPLE_SEL -.->|REST API /predict/sample| API
-    UPLOAD -.->|REST API multipart/form-data| API
-    METRICS_VIEW -.->|Reads artifacts & reports| REPORTS
 ```
 
 ---
 
-## 2. Component Design & Rationale
+### Diagram 2: Image Ingestion and Inference Workflow
 
-| Component | Technology | Rationale |
-| :--- | :--- | :--- |
-| **Dataset** | MedMNIST v2 PneumoniaMNIST | Standardized, peer-reviewed 28x28 benchmark allowing fast, reproducible research on laptop hardware without downloading multi-gigabyte clinical PACS archives. |
-| **ML Framework** | PyTorch 2.x | Native tensor computations, dynamic autograd hooks for Grad-CAM, and clean Pythonic architecture. |
-| **Model** | `ChestXRayMiniCNN` | Custom 3-stage CNN (~240K parameters) tailored for 28x28 single-channel radiographs. Trains in < 30 seconds on CPU while yielding > 89% accuracy and 98% sensitivity. |
-| **Explainability** | Grad-CAM (Target: `conv3`) | Direct gradient-weighted activation mapping. Highlights semantic regions driving neural decisions without approximations or perturbation noise. |
-| **Backend** | FastAPI + Uvicorn | High-throughput asynchronous REST API with automatic Pydantic request validation and OpenAPI documentation (`/docs`). |
-| **Frontend** | Streamlit | Rapid, responsive data science dashboard communicating strictly through the REST API layer. Decoupled from backend execution. |
-| **Containerization** | Docker & Docker Compose | Multi-container architecture with non-root security, health checks, and isolated service networking. |
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Researcher / Student
+    participant UI as React / Streamlit Frontend
+    participant API as FastAPI Backend (:8000)
+    participant Ingest as Preprocessing & Ingest Service
+    participant Model as ChestXRayMiniCNN
+    participant GCAM as Grad-CAM Engine
+    participant Audit as AuditLogger
+
+    User->>UI: Select Test Sample or Upload Image / DICOM
+    UI->>UI: Validate file size (<= 5 MB) and format
+    UI->>API: POST /predict (or /ingest/dicom)
+    API->>Audit: Log event: PREDICTION_REQUESTED (no PHI)
+    API->>Ingest: Extract pixel array, convert to grayscale, resize (28x28)
+    Ingest->>Ingest: Normalize intensities to [-1.0, 1.0]
+    Ingest->>Model: Forward pass on normalized tensor (1, 1, 28, 28)
+    Model-->>API: Raw logits -> Softmax model scores
+    API->>GCAM: Backpropagate predicted class score to conv3
+    GCAM-->>API: Compute gradients, GAP weights, ReLU heatmap & overlay
+    API->>Audit: Log event: PREDICTION_COMPLETED (latency, class, scores)
+    API-->>UI: Return JSON (prediction, scores, Grad-CAM base64, latency)
+    UI-->>User: Display classification badge, scores & Grad-CAM overlays
+```
 
 ---
 
-## 3. Data Flow
+### Diagram 3: Training, Validation, and Evaluation Pipeline
 
-1. **Client Request**:
-   - The user selects a test sample or uploads a grayscale/RGB radiograph through the Streamlit dashboard or raw REST client.
-2. **Payload Validation**:
-   - FastAPI enforces a 5 MB payload limit, verifies MIME type, decodes image bytes, and ensures proper format.
-3. **Preprocessing**:
-   - The image is converted to single-channel 8-bit grayscale (`PIL.Image.convert('L')`), resized to `28x28` via bilinear interpolation, converted to `torch.float32`, and normalized:
-     $$x_{\text{norm}} = \frac{\frac{x}{255.0} - 0.5}{0.5} \in [-1.0, 1.0]$$
-4. **Inference**:
-   - In `torch.no_grad()` mode, `ChestXRayMiniCNN` generates raw logits:
-     $$\mathbf{z} = [z_0, z_1]$$
-   - Numerically stable softmax produces model scores:
-     $$s_c = \frac{e^{z_c}}{\sum_{j} e^{z_j}}$$
-5. **Grad-CAM Computation**:
-   - Forward hook records activation feature maps $A^k$ at layer `conv3`.
-   - Backward pass on predicted class logit calculates gradients $\frac{\partial z_c}{\partial A^k}$.
-   - Global Average Pooling produces importance weights $\alpha_k^c$.
-   - Rectified combination yields 2D heatmap $L^c = \text{ReLU}\left(\sum_k \alpha_k^c A^k\right)$.
-   - Heatmap is normalized to $[0, 1]$, upscaled to $28 \times 28$, colormapped (`jet`), and alpha-blended with the grayscale anatomy.
-6. **Response Dispatch**:
-   - Prediction, model scores, inference latency, base64-encoded visual assets, and the mandatory clinical disclaimer are packaged in a typed JSON response.
+```mermaid
+flowchart LR
+    subgraph S1 ["Stage 1: Verify"]
+        V1["scripts/verify_dataset.py"] --> V2["MD5 Checksum & Shape Check\n(28209eda62fecd6e6a2d98b1501bb15f)"]
+    end
+
+    subgraph S2 ["Stage 2: Train"]
+        T1["scripts/run_training.py"] --> T2["Weighted CrossEntropyLoss\n(Normal: 1.939, Pneumonia: 0.674)"]
+        T2 --> T3["AdamW Optimizer (lr=0.001)"]
+        T3 --> T4["Validation Loss Checkpoint Selection"]
+        T4 --> T5[("artifacts/best_model.pt\n(Epoch 4, Val Loss: 0.0709)")]
+    end
+
+    subgraph S3 ["Stage 3: Evaluate"]
+        E1["scripts/run_evaluation.py"] --> E2["Untouched Test Split (624 Samples)"]
+        E2 --> E3["Diagnostic Metrics\n(Acc: 89.7%, Sens: 98.2%, Spec: 75.6%, AUC: 0.942)"]
+        E3 --> E4["reports/metrics.json\nreports/evaluation_report.md\nreports/confusion_matrix.png"]
+    end
+
+    S1 --> S2 --> S3
+```
+
+---
+
+## 3. Technology Stack & Design Decisions
+
+| Technology | Role | Justification |
+| :--- | :--- | :--- |
+| **PyTorch 2.x** | Core Deep Learning | Native autograd hooks for Grad-CAM, device agnostic execution (CUDA/CPU). |
+| **MONAI 1.6+** | Medical Preprocessing | Standardized healthcare imaging transforms, deterministic pipeline, 3D volumetric U-Net support. |
+| **Orthanc PACS** | DICOM Storage & Ingestion | Standard open-source vendor-neutral DICOM PACS server with REST API. |
+| **DVC 3.6+** | ML Reproducibility | Tracks dataset lineage and training stages without polluting Git with multi-megabyte binary checkpoints. |
+| **FastAPI** | REST API Backend | High performance asynchronous Python web framework with typed Pydantic validation. |
+| **React 18 + Vite** | Primary Frontend | Production-ready, lightning-fast component dashboard with responsive state management. |
+| **Streamlit** | Fallback Frontend | Immediate pythonic UI providing seamless exploration if Node is unavailable. |
+| **Docker Compose** | Deployment & Packaging | Multi-container profile architecture (`api`, `frontend`, `streamlit`, `orthanc`). |

@@ -1,0 +1,45 @@
+# DVC (Data Version Control) Reproducible Pipeline
+# Execute full pipeline: python -m dvc repro
+# View pipeline DAG: python -m dvc dag
+
+stages:
+  verify_data:
+    cmd: python scripts/verify_dataset.py
+    deps:
+      - scripts/verify_dataset.py
+      - app/ml/dataset.py
+      - configs/config.yaml
+      - data/pneumoniamnist.npz
+
+  train:
+    cmd: python scripts/run_training.py
+    deps:
+      - scripts/run_training.py
+      - app/ml/train.py
+      - app/ml/model.py
+      - configs/config.yaml
+      - data/pneumoniamnist.npz
+    outs:
+      - artifacts/best_model.pt:
+          cache: false
+      - artifacts/training_history.json:
+          cache: false
+      - reports/loss_curve.png:
+          cache: false
+
+  evaluate:
+    cmd: python scripts/run_evaluation.py
+    deps:
+      - scripts/run_evaluation.py
+      - app/ml/evaluate.py
+      - app/ml/metrics.py
+      - artifacts/best_model.pt
+      - data/pneumoniamnist.npz
+    outs:
+      - reports/confusion_matrix.png:
+          cache: false
+      - reports/roc_curve.png:
+          cache: false
+    metrics:
+      - reports/metrics.json:
+          cache: false
