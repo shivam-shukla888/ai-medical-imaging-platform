@@ -1,0 +1,55 @@
+# AI Chest X-Ray Research Platform Configuration
+project_name: "AI Chest X-Ray Research Platform"
+version: "1.0.0"
+
+disclaimer: "Educational research demo only. Not intended for clinical use, diagnosis, treatment, or medical decision-making."
+
+data:
+  data_path: "data/pneumoniamnist.npz"
+  fallback_path: "pneumoniamnist.npz"
+  expected_md5: "28209eda62fecd6e6a2d98b1501bb15f"
+  image_size: [28, 28]
+  in_channels: 1
+  num_classes: 2
+  classes:
+    0: "Normal"
+    1: "Pneumonia"
+  normalization:
+    mean: [0.5]
+    std: [0.5]
+
+model:
+  architecture: "ChestXRayMiniCNN"
+  in_channels: 1
+  num_classes: 2
+  conv_channels: [32, 64, 128]
+  fc_features: 128
+  dropout: 0.25
+  target_conv_layer: "features.conv3"
+
+training:
+  seed: 42
+  batch_size: 64
+  epochs: 10
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  device: "auto" # 'auto', 'cuda', or 'cpu'
+  use_class_weights: true
+  early_stopping_patience: 5
+
+paths:
+  artifacts_dir: "artifacts"
+  model_checkpoint: "artifacts/best_model.pt"
+  training_history: "artifacts/training_history.json"
+  reports_dir: "reports"
+  metrics_json: "reports/metrics.json"
+  evaluation_report: "reports/evaluation_report.md"
+  confusion_matrix_plot: "reports/confusion_matrix.png"
+  roc_curve_plot: "reports/roc_curve.png"
+  loss_curve_plot: "reports/loss_curve.png"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false
+  max_upload_size_bytes: 5242880 # 5 MB

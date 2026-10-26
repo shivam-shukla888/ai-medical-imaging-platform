@@ -1,0 +1,65 @@
+{
+  "metadata": {
+    "disclaimer": "Educational research demo only. Not intended for clinical use, diagnosis, treatment, or medical decision-making.",
+    "model_architecture": "ChestXRayMiniCNN",
+    "checkpoint_epoch": 4,
+    "checkpoint_timestamp": "2026-10-26 15:43:44 UTC",
+    "evaluation_date": "2026-10-26 15:44:32 UTC",
+    "device": "cpu",
+    "seed": 42,
+    "dataset_file": "pneumoniamnist.npz",
+    "dataset_md5": "28209eda62fecd6e6a2d98b1501bb15f"
+  },
+  "metrics": {
+    "accuracy": 0.8974358974358975,
+    "precision": 0.8704545454545455,
+    "recall_sensitivity": 0.982051282051282,
+    "specificity": 0.7564102564102564,
+    "f1_score": 0.9228915662650602,
+    "roc_auc": 0.9417707648476878,
+    "confusion_matrix": {
+      "true_negatives": 177,
+      "false_positives": 57,
+      "false_negatives": 7,
+      "true_positives": 383,
+      "matrix": [
+        [
+          177,
+          57
+        ],
+        [
+          7,
+          383
+        ]
+      ],
+      "labels": [
+        "Normal",
+        "Pneumonia"
+      ]
+    },
+    "per_class": {
+      "Normal": {
+        "precision": 0.9619565217391305,
+        "recall": 0.7564102564102564,
+        "f1_score": 0.84688995215311,
+        "support": 234
+      },
+      "Pneumonia": {
+        "precision": 0.8704545454545455,
+        "recall": 0.982051282051282,
+        "f1_score": 0.9228915662650602,
+        "support": 390
+      }
+    },
+    "macro_avg": {
+      "precision": 0.916205533596838,
+      "recall": 0.8692307692307693,
+      "f1_score": 0.8848907592090851
+    },
+    "weighted_avg": {
+      "precision": 0.9047677865612648,
+      "recall": 0.8974358974358975,
+      "f1_score": 0.8943909609730789
+    }
+  }
+}
